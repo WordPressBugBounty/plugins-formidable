@@ -1,6 +1,6 @@
 <?php
 /**
- * Form Templates - Categories.
+ * Add-Ons categories.
  *
  * @package Formidable
  */
@@ -20,8 +20,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 			esc_html( $category_data['count'] )
 		);
 
+		if ( 'all-items' === $category_slug || 'basic' === $category_slug ) {
+			echo '<li class="frm-page-skeleton-divider frm-mt-xs frm-mb-xs"></li>';
+		}
 		if ( 'all-items' === $category_slug ) {
-			echo '<li class="frm-page-skeleton-divider"></li>';
 			$classes .= ' frm-current';
 		}
 		?>
