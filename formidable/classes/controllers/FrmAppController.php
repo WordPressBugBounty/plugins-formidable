@@ -888,6 +888,7 @@ class FrmAppController {
 	public static function admin_enqueue_scripts() {
 		self::load_wp_admin_style();
 		self::maybe_force_formidable_block_on_gutenberg_page();
+		FrmUsageController::load_scripts();
 	}
 
 	/**
@@ -1355,14 +1356,6 @@ class FrmAppController {
 		 * @since 6.8.4
 		 */
 		do_action( 'frm_enqueue_floating_links' );
-	}
-
-	/**
-	 * @deprecated 3.0 This is still referenced in https://formidableforms.com/knowledgebase/php-examples/ as of May 8, 2024.
-	 * @codeCoverageIgnore
-	 */
-	public static function page_route( $content ) {
-		return FrmDeprecated::page_route( $content );
 	}
 
 	/**

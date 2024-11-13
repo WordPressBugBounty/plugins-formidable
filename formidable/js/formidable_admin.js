@@ -716,17 +716,21 @@ function frmAdminBuildJS() {
 
 	function clickNewTab() {
 		/*jshint validthis:true */
-		const t = this.getAttribute( 'href' ),
-			c = t.replace( '#', '.' ),
-			$link = jQuery( this );
-
+		const t = this.getAttribute( 'href' );
 		if ( typeof t === 'undefined' ) {
 			return false;
 		}
 
+		const c     = t.replace( '#', '.' );
+		const $link = jQuery( this );
+
 		$link.closest( 'li' ).addClass( 'frm-tabs active' ).siblings( 'li' ).removeClass( 'frm-tabs active starttab' );
 		$link.closest( 'div' ).children( '.tabs-panel' ).not( t ).not( c ).hide();
-		document.getElementById( t.replace( '#', '' ) ).style.display = 'block';
+
+		const tabContent = document.getElementById( t.replace( '#', '' ) );
+		if ( tabContent ) {
+			tabContent.style.display = 'block';
+		}
 
 		// clearSettingsBox would hide field settings when opening the fields modal and we want to skip it there.
 		if ( this.id === 'frm_insert_fields_tab' && ! this.closest( '#frm_adv_info' ) ) {
@@ -6607,7 +6611,8 @@ function frmAdminBuildJS() {
 		if ( formNameInput && formNameInput.value.trim() !== '' ) {
 			return false;
 		}
-		return 'true' === urlParams.get( 'new_template' );
+
+		return 'true' === urlParams.get( 'new_template' ) && document.querySelector( '#frm_top_bar #frm_bs_dropdown .frm_bstooltip' )?.textContent.trim() === frm_admin_js.noTitleText; // eslint-disable-line camelcase
 	}
 
 	/**
