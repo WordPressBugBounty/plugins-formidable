@@ -13,6 +13,7 @@ function frmPS() {
 
 		/**
 		 * Get parent search hint element.
+		 *
 		 * @return {Element|null} The parent search hint element.
 		 */
 		getCard: function() {
@@ -34,13 +35,14 @@ function frmPS() {
 
 				// Remove link and parent li from action links and move it to bottom row
 				const dismissLink = document.querySelector( '.frm-plugin-search__dismiss' );
-				dismissLink.parentNode.parentNode.removeChild( dismissLink.parentNode );
-				document.querySelector( '.frm-plugin-search__bottom' ).appendChild( dismissLink );
+				dismissLink.parentNode.remove();
+				document.querySelector( '.frm-plugin-search__bottom' ).append( dismissLink );
 			}
 		},
 
 		/**
 		 * Check if plugin card list nodes changed. If there's a Formidable PSH card, replace the title and the bottom row.
+		 *
 		 * @param {Array} mutationsList
 		 */
 		replaceOnNewResults: function( mutationsList ) {

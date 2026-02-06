@@ -161,7 +161,7 @@
 
 	/**
 	 * @param {string} labelPosition
-	 * @return {void}
+	 * @return {void} Changes the label position in the preview.
 	 */
 	function changeLabelPositionsInPreview( labelPosition ) {
 		const input = tag( 'input' );
@@ -271,12 +271,12 @@
 
 		if ( target.classList.contains( 'frm-edit-style' ) || null !== target.closest( '.frm-edit-style' ) || 'frm_edit_style' === target.id ) {
 			modifyStylerUrl( target );
-			return; // eslint-disable-line
 		}
 	}
 
 	/**
 	 * This function is used to update the form action when switching from the advanced settings and quick-settings.
+	 *
 	 * @param {Object} target The submit button event target
 	 * @return {void}
 	 */
@@ -326,7 +326,6 @@
 
 		if ( target.classList.contains( 'frm-style-card' ) || target.closest( '.frm-style-card' ) ) {
 			handleStyleCardClick( event );
-			return; // eslint-disable-line
 		}
 	}
 
@@ -587,7 +586,7 @@
 			return;
 		}
 
-		card.appendChild( getHamburgerMenu( card.dataset ) );
+		card.append( getHamburgerMenu( card.dataset ) );
 	}
 
 	/**
@@ -632,8 +631,8 @@
 			className: 'frm-dropdown-toggle dropdown-toggle',
 			child: svg( { href: '#frm_thick_more_vert_icon' } )
 		} );
-		hamburgerMenu.setAttribute( 'data-toggle', 'dropdown' );
-		hamburgerMenu.setAttribute( 'data-container', 'body' );
+		hamburgerMenu.setAttribute( 'data-bs-toggle', 'dropdown' );
+		hamburgerMenu.setAttribute( 'data-bs-container', 'body' );
 		hamburgerMenu.setAttribute( 'role', 'button' );
 		hamburgerMenu.setAttribute( 'tabindex', 0 );
 
@@ -1084,9 +1083,25 @@
 			}
 		}
 
+		resetCustomCSSEditor();
 		jQuery( '#frm_submit_style, #frm_auto_width' ).prop( 'checked', false );
 		jQuery( document.getElementById( 'frm_fieldset' ) ).trigger( 'change' );
 		showStyleResetSuccessMessage();
+	}
+
+	/**
+	 * Reset the custom CSS editor.
+	 *
+	 * @return {void}
+	 */
+	function resetCustomCSSEditor() {
+		const checkbox = document.getElementById( 'frm_enable_single_style_custom_css' );
+		const editorWrapper = document.getElementById( 'frm_single_style_custom_css_editor' );
+		if ( ! checkbox || ! editorWrapper ) {
+			return;
+		}
+		checkbox.checked = false;
+		editorWrapper.classList.add( 'frm_hidden' );
 	}
 
 	/**
@@ -1109,13 +1124,13 @@
 		newStyle.addEventListener(
 			'load',
 			() => {
-				style.parentNode.removeChild( style );
+				style.remove();
 				newStyle.id = 'frm-custom-theme-css'; // Assign the old ID to the new style so it can be removed in the next reset action.
 			}
 		);
 
 		const head = document.getElementsByTagName( 'HEAD' )[ 0 ];
-		head.appendChild( newStyle );
+		head.append( newStyle );
 	}
 
 	/**

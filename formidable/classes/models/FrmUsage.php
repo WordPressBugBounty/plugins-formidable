@@ -45,13 +45,16 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
+	 * @param bool $regenerate
+	 *
 	 * @return string
 	 */
 	public function uuid( $regenerate = false ) {
 		$uuid_key = 'frm-usage-uuid';
 		$uuid     = get_option( $uuid_key );
 
-		if ( $regenerate || empty( $uuid ) ) {
+		if ( $regenerate || ! $uuid ) {
 			// Definitely not cryptographically secure but
 			// close enough to provide an unique id
 			$uuid = md5( uniqid() . site_url() );
@@ -63,6 +66,7 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	public function snapshot() {
@@ -96,6 +100,7 @@ class FrmUsage {
 			'actions'           => $this->actions(),
 
 			'onboarding-wizard' => $this->onboarding_wizard(),
+			'welcome-tour'      => FrmWelcomeTourController::get_usage_data(),
 			'flows'             => FrmUsageController::get_flows_data(),
 			'payments'          => $this->payments(),
 			'subscriptions'     => $this->payments( 'frm_subscriptions' ),
@@ -138,10 +143,12 @@ class FrmUsage {
 	 * @since 6.16.1
 	 *
 	 * @param string $table Database table name.
+	 *
 	 * @return array
 	 */
 	private function payments( $table = 'frm_payments' ) {
 		$allowed_tables = array( 'frm_payments', 'frm_subscriptions' );
+
 		if ( ! in_array( $table, $allowed_tables, true ) ) {
 			return array();
 		}
@@ -159,6 +166,7 @@ class FrmUsage {
 		);
 
 		$payments = array();
+
 		foreach ( $rows as $row ) {
 			$payments[] = array(
 				'amount'     => (float) $row->amount,
@@ -173,12 +181,13 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	private function plugins() {
 		$plugin_list = FrmAppHelper::get_plugins();
+		$plugins     = array();
 
-		$plugins = array();
 		foreach ( $plugin_list as $slug => $info ) {
 			$plugins[] = array(
 				'name'    => $info['Name'],
@@ -195,6 +204,7 @@ class FrmUsage {
 	 * Add global settings to tracking data.
 	 *
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	private function settings() {
@@ -223,6 +233,7 @@ class FrmUsage {
 			'honeypot',
 			'wp_spam_check',
 			'denylist_check',
+			'email_style',
 		);
 
 		foreach ( $pass_settings as $setting ) {
@@ -245,6 +256,7 @@ class FrmUsage {
 	 * @since 3.06.04
 	 *
 	 * @param FrmSettings $settings_list
+	 *
 	 * @return array
 	 */
 	private function messages( $settings_list ) {
@@ -259,9 +271,9 @@ class FrmUsage {
 			'admin_permission',
 		);
 
-		$default = $settings_list->default_options();
-
+		$default          = $settings_list->default_options();
 		$message_settings = array();
+
 		foreach ( $messages as $message ) {
 			$message_settings[ 'changed-' . $message ] = $settings_list->$message === $default[ $message ] ? 0 : 1;
 		}
@@ -275,6 +287,7 @@ class FrmUsage {
 	 * @since 3.06.04
 	 *
 	 * @param FrmSettings $settings_list
+	 *
 	 * @return array
 	 */
 	private function permissions( $settings_list ) {
@@ -292,6 +305,7 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	private function forms() {
@@ -341,6 +355,7 @@ class FrmUsage {
 		);
 
 		$style = new FrmStyle();
+
 		foreach ( $saved_forms as $form ) {
 			$new_form = array(
 				'form_id'           => $form->id,
@@ -383,6 +398,9 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
+	 * @param int|string $form_id Form ID.
+	 *
 	 * @return int
 	 */
 	private function form_field_count( $form_id ) {
@@ -401,6 +419,9 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
+	 * @param int|string $form_id Form ID.
+	 *
 	 * @return int
 	 */
 	private function form_action_count( $form_id ) {
@@ -418,6 +439,7 @@ class FrmUsage {
 	 * Get the last 100 fields created.
 	 *
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	private function fields() {
@@ -427,15 +449,18 @@ class FrmUsage {
 		);
 
 		$fields = FrmDb::get_results( 'frm_fields', array(), 'id, form_id, name, type, field_options', $args );
+
 		foreach ( $fields as $k => $field ) {
 			FrmAppHelper::unserialize_or_decode( $field->field_options );
 			$fields[ $k ]->field_options = json_encode( $field->field_options );
 		}
+
 		return $fields;
 	}
 
 	/**
 	 * @since 3.06.04
+	 *
 	 * @return array
 	 */
 	private function actions() {
@@ -444,9 +469,9 @@ class FrmUsage {
 			'numberposts' => 100,
 		);
 
-		$actions = array();
-
+		$actions       = array();
 		$saved_actions = FrmDb::check_cache( json_encode( $args ), 'frm_actions', $args, 'get_posts' );
+
 		foreach ( $saved_actions as $action ) {
 			$actions[] = array(
 				'form_id'  => $action->menu_order,
@@ -461,6 +486,7 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
 	 * @return bool
 	 */
 	private function tracking_allowed() {
@@ -469,6 +495,9 @@ class FrmUsage {
 
 	/**
 	 * @since 3.06.04
+	 *
+	 * @param mixed $value Value.
+	 *
 	 * @return string
 	 */
 	private function maybe_json( $value ) {
