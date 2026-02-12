@@ -11,7 +11,7 @@ class FrmEntryFormatter {
 	/**
 	 * @since 2.04
 	 *
-	 * @var stdClass|null
+	 * @var false|stdClass|null
 	 */
 	protected $entry;
 
@@ -417,16 +417,12 @@ class FrmEntryFormatter {
 
 		if ( $this->format === 'json' ) {
 			$content = json_encode( $this->prepare_array() );
-
 		} elseif ( $this->format === 'array' ) {
 			$content = $this->prepare_array();
-
 		} elseif ( $this->format === 'table' ) {
 			$content = $this->prepare_html_table();
-
 		} elseif ( $this->format === 'plain_text_block' ) {
 			$content = $this->prepare_plain_text_block();
-
 		} else {
 			$content = '';
 		}
@@ -466,11 +462,7 @@ class FrmEntryFormatter {
 
 		$content .= $this->table_generator->generate_table_footer();
 
-		if ( $this->is_clickable ) {
-			$content = make_clickable( $content );
-		}
-
-		return $content;
+		return $this->is_clickable ? make_clickable( $content ) : $content;
 	}
 
 	/**
@@ -554,14 +546,16 @@ class FrmEntryFormatter {
 	 * @return void
 	 */
 	protected function push_single_field_to_array( $field_value, &$output ) {
-		if ( $this->include_field_in_content( $field_value ) ) {
-			$displayed_value                                = $this->prepare_display_value_for_array( $field_value->get_displayed_value() );
-			$output[ $this->get_key_or_id( $field_value ) ] = $displayed_value;
-			$has_separate_value                             = (bool) $field_value->get_field_option( 'separate_value' );
+		if ( ! $this->include_field_in_content( $field_value ) ) {
+			return;
+		}
 
-			if ( $has_separate_value || $displayed_value !== $field_value->get_saved_value() ) {
-				$output[ $this->get_key_or_id( $field_value ) . '-value' ] = $field_value->get_saved_value();
-			}
+		$displayed_value                                = $this->prepare_display_value_for_array( $field_value->get_displayed_value() );
+		$output[ $this->get_key_or_id( $field_value ) ] = $displayed_value;
+		$has_separate_value                             = (bool) $field_value->get_field_option( 'separate_value' );
+
+		if ( $has_separate_value || $displayed_value !== $field_value->get_saved_value() ) {
+			$output[ $this->get_key_or_id( $field_value ) . '-value' ] = $field_value->get_saved_value();
 		}
 	}
 
@@ -599,7 +593,6 @@ class FrmEntryFormatter {
 	protected function add_field_value_to_content( $field_value, &$content ) {
 		if ( $this->is_extra_field( $field_value ) ) {
 			$this->add_row_for_extra_field( $field_value, $content );
-
 		} else {
 			$this->add_row_for_standard_field( $field_value, $content );
 		}
@@ -925,7 +918,7 @@ class FrmEntryFormatter {
 		$display_value = $this->flatten_array( $display_value );
 
 		if ( ! isset( $this->atts['line_breaks'] ) || ! empty( $this->atts['line_breaks'] ) ) {
-			$display_value = str_replace( array( "\r\n", "\n" ), '<br/>', $display_value );
+			return str_replace( array( "\r\n", "\n" ), '<br/>', $display_value );
 		}
 
 		return $display_value;
@@ -973,19 +966,21 @@ class FrmEntryFormatter {
 	 * @return mixed
 	 */
 	protected function strip_html( $value ) {
-		if ( $this->is_plain_text ) {
-			if ( is_array( $value ) ) {
-				foreach ( $value as $key => $single_value ) {
-					$value[ $key ] = $this->strip_html( $single_value );
-				}
-			} elseif ( $this->is_plain_text && ! is_array( $value ) ) {
-				if ( str_contains( $value, '<img' ) ) {
-					$value = str_replace( array( '<img', 'src=', '/>', '"' ), '', $value );
-					$value = trim( $value );
-				}
+		if ( ! $this->is_plain_text ) {
+			return $value;
+		}
 
-				$value = strip_tags( $value );
+		if ( is_array( $value ) ) {
+			foreach ( $value as $key => $single_value ) {
+				$value[ $key ] = $this->strip_html( $single_value );
 			}
+		} elseif ( $this->is_plain_text && ! is_array( $value ) ) {
+			if ( str_contains( $value, '<img' ) ) {
+				$value = str_replace( array( '<img', 'src=', '/>', '"' ), '', $value );
+				$value = trim( $value );
+			}
+
+			$value = strip_tags( $value );
 		}
 
 		return $value;

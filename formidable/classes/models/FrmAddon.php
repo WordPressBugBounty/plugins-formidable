@@ -161,13 +161,15 @@ class FrmAddon {
 
 		add_action( 'after_plugin_row_' . plugin_basename( $this->plugin_file ), array( $this, 'maybe_show_license_message' ), 10, 2 );
 
-		if ( $license ) {
-			if ( 'formidable/formidable.php' !== $this->plugin_folder ) {
-				add_filter( 'plugins_api', array( &$this, 'plugins_api_filter' ), 10, 3 );
-			}
-
-			add_filter( 'site_transient_update_plugins', array( &$this, 'clear_expired_download' ) );
+		if ( ! $license ) {
+			return;
 		}
+
+		if ( 'formidable/formidable.php' !== $this->plugin_folder ) {
+			add_filter( 'plugins_api', array( &$this, 'plugins_api_filter' ), 10, 3 );
+		}
+
+		add_filter( 'site_transient_update_plugins', array( &$this, 'clear_expired_download' ) );
 	}
 
 	/**
@@ -175,11 +177,11 @@ class FrmAddon {
 	 *
 	 * @uses api_request()
 	 *
-	 * @param mixed  $_data
-	 * @param string $_action
-	 * @param object $_args
+	 * @param mixed       $_data
+	 * @param string      $_action
+	 * @param object|null $_args
 	 *
-	 * @return object $_data
+	 * @return object Data.
 	 */
 	public function plugins_api_filter( $_data, $_action = '', $_args = null ) {
 		if ( $_action !== 'plugin_information' ) {
@@ -195,7 +197,21 @@ class FrmAddon {
 
 		$item_id = $this->download_id;
 
-		if ( ! $item_id ) {
+		if ( $item_id ) {
+			$api = new FrmFormApi( $this->license );
+
+			// Force new API info so we can pull changelog data.
+			// Change log data is intentionally omitted from the cached API response
+			// To help reduce the size of the autoloaded option.
+			$api->force_api_request();
+			$plugins = $api->get_api_info();
+
+			if ( $plugins ) {
+				$_data = $plugins[ $item_id ];
+			}
+		}
+
+		if ( empty( $plugins ) ) {
 			$_data = array(
 				'name'      => $this->plugin_name,
 				'excerpt'   => '',
@@ -205,10 +221,6 @@ class FrmAddon {
 					'low'  => 'https://ps.w.org/formidable/assets/banner-1544x500.png',
 				),
 			);
-		} else {
-			$api     = new FrmFormApi( $this->license );
-			$plugins = $api->get_api_info();
-			$_data   = $plugins[ $item_id ];
 		}
 
 		$_data['sections'] = array(
@@ -233,11 +245,7 @@ class FrmAddon {
 
 		$license = trim( get_option( $this->option_name . 'key' ) );
 
-		if ( ! $license ) {
-			$license = $this->activate_defined_license();
-		}
-
-		return $license;
+		return $license ? $license : $this->activate_defined_license();
 	}
 
 	/**
@@ -246,7 +254,7 @@ class FrmAddon {
 	 * @return false|string
 	 */
 	protected function maybe_get_pro_license() {
-		// prevent a loop if $this is the pro plugin
+		// Prevent a loop if $this is the pro plugin
 		$get_license = FrmAppHelper::pro_is_installed() && is_callable( 'FrmProAppHelper::get_updater' ) && $this->plugin_name !== 'Formidable Pro';
 
 		if ( ! $get_license ) {
@@ -263,11 +271,7 @@ class FrmAddon {
 
 		$this->get_api_info( $license );
 
-		if ( ! $this->is_parent_licence ) {
-			$license = false;
-		}
-
-		return $license;
+		return $this->is_parent_licence ? $license : false;
 	}
 
 	/**
@@ -339,12 +343,14 @@ class FrmAddon {
 		delete_option( $this->option_name . 'active' );
 		delete_option( $this->option_name . 'key' );
 
-		if ( $this->should_clear_cache ) {
-			delete_site_option( $this->transient_key() );
-			delete_option( $this->transient_key() );
-			$this->delete_cache();
-			$this->should_clear_cache = true;
+		if ( ! $this->should_clear_cache ) {
+			return;
 		}
+
+		delete_site_option( $this->transient_key() );
+		delete_option( $this->transient_key() );
+		$this->delete_cache();
+		$this->should_clear_cache = true;
 	}
 
 	/**
@@ -458,7 +464,7 @@ class FrmAddon {
 	 */
 	public function maybe_show_license_message( $file, $plugin ) {
 		if ( $this->is_expired_addon || isset( $plugin['package'] ) ) {
-			// let's not show a ton of duplicate messages
+			// Let's not show a ton of duplicate messages
 			return;
 		}
 
@@ -517,7 +523,7 @@ class FrmAddon {
 		} elseif ( isset( $transient->response ) && isset( $transient->response[ $this->plugin_folder ] ) ) {
 			$this->prepare_update_details( $transient->response[ $this->plugin_folder ] );
 
-			// if the transient has expired, clear the update and trigger it again
+			// If the transient has expired, clear the update and trigger it again
 			if ( $transient->response[ $this->plugin_folder ] === false ) {
 				if ( ! $this->has_been_cleared() ) {
 					$this->cleared_plugins();
@@ -547,19 +553,23 @@ class FrmAddon {
 			$version_info = (object) $this->get_api_info( $this->license );
 		}
 
-		if ( ! empty( $version_info->new_version ) ) {
-			$this->clear_old_plugin_version( $version_info );
+		if ( empty( $version_info->new_version ) ) {
+			return;
+		}
 
-			if ( $version_info === false ) {
-				// Was cleared with timeout.
-				$transient = false;
-			} else {
-				$this->maybe_use_beta_url( $version_info );
+		$this->clear_old_plugin_version( $version_info );
 
-				if ( version_compare( $version_info->new_version, $this->version, '>' ) ) {
-					$transient = $version_info;
-				}
-			}
+		if ( $version_info === false ) {
+			// Was cleared with timeout.
+			$transient = false;
+
+			return;
+		}
+
+		$this->maybe_use_beta_url( $version_info );
+
+		if ( version_compare( $version_info->new_version, $this->version, '>' ) ) {
+			$transient = $version_info;
 		}
 	}
 
@@ -576,11 +586,11 @@ class FrmAddon {
 		$api   = new FrmFormApi( $license );
 		$addon = $api->get_addon_for_license( $this );
 
-		// if there is no download url, this license does not apply to the addon
+		// If there is no download url, this license does not apply to the addon
 		if ( isset( $addon['package'] ) ) {
 			$this->is_parent_licence = true;
 		} elseif ( isset( $addon['error'] ) ) {
-			// if the license is expired, we must assume all add-ons were packaged
+			// If the license is expired, we must assume all add-ons were packaged
 			$this->is_parent_licence = true;
 			$this->is_expired_addon  = true;
 		}
@@ -601,12 +611,14 @@ class FrmAddon {
 	private function clear_old_plugin_version( &$version_info ) {
 		$timeout = ! empty( $version_info->timeout ) ? $version_info->timeout : 0;
 
-		if ( $timeout && time() > $timeout ) {
-			// Cache is expired.
-			$version_info = false;
-			$api          = new FrmFormApi( $this->license );
-			$api->reset_cached();
+		if ( ! $timeout || time() <= $timeout ) {
+			return;
 		}
+
+		// Cache is expired.
+		$version_info = false;
+		$api          = new FrmFormApi( $this->license );
+		$api->reset_cached();
 	}
 
 	/**

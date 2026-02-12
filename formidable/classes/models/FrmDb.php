@@ -56,7 +56,7 @@ class FrmDb {
 	 */
 	public static function get_where_clause_and_values( &$args, $starts_with = ' WHERE ' ) {
 		if ( ! $args ) {
-			// add an arg to prevent prepare from failing
+			// Add an arg to prevent prepare from failing
 			$args = array(
 				'where'  => $starts_with . '1=%d',
 				'values' => array( 1 ),
@@ -93,7 +93,7 @@ class FrmDb {
 		}
 
 		foreach ( $args as $key => $value ) {
-			$where .= empty( $where ) ? $base_where : $condition;
+			$where .= $where ? $condition : $base_where;
 			// phpcs:ignore WordPress.PHP.StrictInArray.MissingTrueStrict
 			$array_inc_null = ! is_numeric( $key ) && is_array( $value ) && in_array( null, $value );
 
@@ -122,10 +122,10 @@ class FrmDb {
 	}
 
 	/**
-	 * @param string       $key
-	 * @param array|string $value
-	 * @param string       $where
-	 * @param array        $values
+	 * @param string            $key
+	 * @param array|string|null $value
+	 * @param string            $where
+	 * @param array             $values
 	 *
 	 * @return void
 	 */
@@ -143,7 +143,7 @@ class FrmDb {
 		$lowercase_key = end( $lowercase_key );
 
 		if ( is_array( $value ) ) {
-			// translate array of values to "in"
+			// Translate array of values to "in"
 			if ( str_contains( $lowercase_key, 'like' ) ) {
 				$where  = preg_replace( '/' . $key . '$/', '', $where );
 				$where .= '(';
@@ -184,7 +184,6 @@ class FrmDb {
 
 			$where   .= ' %s';
 			$values[] = $start . self::esc_like( $value ) . $end;
-
 		} elseif ( $value === null ) {
 			$where .= ' IS NULL';
 		} else {
@@ -389,7 +388,7 @@ class FrmDb {
 			$table = $wpdb->prefix . $table;
 		}
 
-		// switch to singular group name
+		// Switch to singular group name
 		$group = rtrim( $group, 's' );
 	}
 
@@ -446,11 +445,13 @@ class FrmDb {
 		}
 
 		// Make sure LIMIT is the last argument
-		if ( isset( $args['order_by'] ) && isset( $args['limit'] ) ) {
-			$temp_limit = $args['limit'];
-			unset( $args['limit'] );
-			$args['limit'] = $temp_limit;
+		if ( ! isset( $args['order_by'] ) || ! isset( $args['limit'] ) ) {
+			return;
 		}
+
+		$temp_limit = $args['limit'];
+		unset( $args['limit'] );
+		$args['limit'] = $temp_limit;
 	}
 
 	/**
@@ -491,13 +492,15 @@ class FrmDb {
 
 		self::esc_query_args( $args );
 
-		if ( is_array( $where ) || empty( $where ) ) {
-			self::get_where_clause_and_values( $where );
-			global $wpdb;
-			$query = $wpdb->prepare( $query . $where['where'] . ' ' . implode( ' ', $args ), $where['values'] ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		if ( ! is_array( $where ) && $where ) {
+			return $query;
 		}
 
-		return $query;
+		self::get_where_clause_and_values( $where );
+		global $wpdb;
+
+		// phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+		return $wpdb->prepare( $query . $where['where'] . ' ' . implode( ' ', $args ), $where['values'] );
 	}
 
 	/**
@@ -648,9 +651,9 @@ class FrmDb {
 		if ( ! $where ) {
 			$where = '';
 		} elseif ( is_array( $where ) ) {
-				global $wpdb;
-				self::get_where_clause_and_values( $where, $starts_with );
-				$where = $wpdb->prepare( $where['where'], $where['values'] ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
+			global $wpdb;
+			self::get_where_clause_and_values( $where, $starts_with );
+			$where = $wpdb->prepare( $where['where'], $where['values'] ); // phpcs:ignore WordPress.DB.PreparedSQL.NotPrepared
 		} else {
 			$where = $starts_with . $where;
 		}
@@ -684,7 +687,7 @@ class FrmDb {
 			unset( $settings['ID'] );
 		}
 
-		// delete all caches for this group
+		// Delete all caches for this group
 		self::cache_delete_group( $group );
 
 		return self::save_json_post( $settings );
@@ -715,7 +718,7 @@ class FrmDb {
 
 		$post = wp_insert_post( $settings );
 
-		// add the content filters back for views or posts
+		// Add the content filters back for views or posts
 		if ( isset( $filters ) ) {
 			$wp_filter['content_save_pre'] = $filters;
 		}
@@ -740,7 +743,7 @@ class FrmDb {
 		$found   = null;
 		$results = wp_cache_get( $cache_key, $group, false, $found );
 
-		if ( ( $found === true && $results !== false ) || empty( $query ) ) {
+		if ( ( $found === true && $results !== false ) || ! $query ) {
 			return $results;
 		}
 
@@ -804,7 +807,7 @@ class FrmDb {
 		$cached = wp_cache_get( 'cached_keys', $group );
 
 		if ( ! $cached || ! is_array( $cached ) ) {
-			$cached = array();
+			return array();
 		}
 
 		return $cached;
@@ -835,13 +838,15 @@ class FrmDb {
 	public static function cache_delete_group( $group ) {
 		$cached_keys = self::get_group_cached_keys( $group );
 
-		if ( $cached_keys ) {
-			foreach ( $cached_keys as $key ) {
-				wp_cache_delete( $key, $group );
-			}
-
-			wp_cache_delete( 'cached_keys', $group );
+		if ( ! $cached_keys ) {
+			return;
 		}
+
+		foreach ( $cached_keys as $key ) {
+			wp_cache_delete( $key, $group );
+		}
+
+		wp_cache_delete( 'cached_keys', $group );
 	}
 
 	/**
