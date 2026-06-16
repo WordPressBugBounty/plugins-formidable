@@ -1008,25 +1008,15 @@ class FrmPayPalLiteConnectHelper {
 	 * @param string $shipping_preference
 	 * @param array  $pricing_data Optional. Array of products with prices and quantities.
 	 * @param array  $shipping     Optional. Shipping name and address data.
+	 * @param string $description  Optional. Description for the order.
 	 *
 	 * @return false|object
 	 */
-	public static function create_order( $amount, $currency, $payment_source, $payer, $shipping_preference, $pricing_data = array(), $shipping = array() ) {
+	public static function create_order( $amount, $currency, $payment_source, $payer, $shipping_preference, $pricing_data = array(), $shipping = array(), $description = '' ) {
 		$brand_name = self::get_brand_name();
 
-		// Log pricing data for debugging if FrmLog is available
-		if ( class_exists( 'FrmLog' ) && $pricing_data ) {
-			$log = new FrmLog();
-			$log->add(
-				array(
-					'title'   => 'PayPal Order: Pricing Data',
-					'content' => print_r( $pricing_data, true ),
-				)
-			);
-		}
-
 		// phpcs:ignore SlevomatCodingStandard.Files.LineLength.LineTooLong
-		return self::post_with_authenticated_body( 'create_order', compact( 'amount', 'currency', 'payment_source', 'brand_name', 'payer', 'shipping_preference', 'pricing_data', 'shipping' ) );
+		return self::post_with_authenticated_body( 'create_order', compact( 'amount', 'currency', 'payment_source', 'brand_name', 'payer', 'shipping_preference', 'pricing_data', 'shipping', 'description' ) );
 	}
 
 	/**

@@ -29,7 +29,7 @@ class FrmAppHelper {
 	 *
 	 * @var string
 	 */
-	public static $plug_version = '6.31';
+	public static $plug_version = '6.32';
 
 	/**
 	 * @var bool
@@ -1536,6 +1536,8 @@ class FrmAppHelper {
 	 * @param bool    $echo
 	 *
 	 * @return string|null
+	 *
+	 * @psalm-return ($echo is true ? null : string)
 	 */
 	public static function clip( $echo_function, $echo = false ) {
 		if ( ! $echo ) {
@@ -5104,11 +5106,16 @@ class FrmAppHelper {
 	 *
 	 * @since 6.24
 	 *
-	 * @param string $string The string to check.
+	 * @param string|null $string The string to check.
 	 *
 	 * @return bool
 	 */
 	public static function is_valid_utf8( $string ) {
+		if ( is_null( $string ) ) {
+			// Return true so we do not attempt to change encoding on a null value.
+			return true;
+		}
+
 		// wp_is_valid_utf8 is added in WP 6.9.
 		if ( function_exists( 'wp_is_valid_utf8' ) ) {
 			return wp_is_valid_utf8( $string );

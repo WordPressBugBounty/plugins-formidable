@@ -461,6 +461,10 @@ class FrmFormActionsController {
 		} else {
 			$classes .= ' frm_inactive_action';
 
+			if ( str_contains( $action_control->action_options['classes'], 'frm_show_expired_modal' ) ) {
+				$classes .= ' frm_show_expired_modal';
+			}
+
 			if ( $default_position !== false && ( $allowed_count + $default_position ) < 6 ) {
 				$group_class .= ' frm-default-show';
 			}
@@ -739,7 +743,23 @@ class FrmFormActionsController {
 	 * @return bool
 	 */
 	private static function should_show_log_message( $action_type ) {
-		$logging = array( 'api', 'salesforce', 'constantcontact', 'activecampaign' );
+		$logging = array(
+			'activecampaign',
+			'api',
+			'aweber',
+			'campaignmonitor',
+			'constantcontact',
+			'convertkit',
+			'getresponse',
+			'googlespreadsheet',
+			'hubspot',
+			'mailchimp',
+			'mailpoet',
+			'n8n',
+			'salesforce',
+			'twilio',
+			'zapier',
+		);
 		return in_array( $action_type, $logging, true ) && ! function_exists( 'frm_log_autoloader' );
 	}
 

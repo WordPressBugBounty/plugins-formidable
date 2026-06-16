@@ -131,12 +131,23 @@
 		// Clear the card element. We rebuild it entirely.
 		cardElement.innerHTML = '';
 
-		// 1. Discover eligible methods and register them.
+		// Reset state so each run rediscovers cleanly (the DOM above was cleared).
+		paymentMethods.clear();
+		selectedMethod = null;
+
+		// 1. Discover synchronous methods (Card, PayPal, alternative funding).
 		await discoverPaymentMethods( {
 			cardFieldsAreSupported,
 			buttonsAreEnabled,
 			isRecurring
 		} );
+
+		// 1b. Discover Google Pay / Apple Pay. Their SDKs (pay.js / PayPal applepay
+		// component) load asynchronously and are frequently not ready during the first
+		// run, which previously left these buttons missing on first load. We wait
+		// (bounded) for them here so every eligible method appears together in one
+		// render instead of popping in afterward.
+		await discoverDeferredPaymentMethods( { buttonsAreEnabled, isRecurring } );
 
 		if ( paymentMethods.size === 0 ) {
 			displayPaymentFailure( 'No payment methods available.' );
@@ -263,27 +274,162 @@
 			}
 		}
 
-		// --- Google Pay ---
-		if ( buttonsAreEnabled && ! isRecurring ) {
-			const googlePayEligible = await checkGooglePayEligibility();
-			if ( googlePayEligible ) {
-				registerMethod( 'google_pay', {
-					eligible: true,
-					render: renderGooglePayButton
-				} );
-			}
+		// Google Pay and Apple Pay are discovered separately in
+		// discoverDeferredPaymentMethods() because their SDKs (pay.js / PayPal applepay
+		// component) may not be ready yet when this runs.
+	}
+
+	/**
+	 * Discover and register Google Pay and Apple Pay.
+	 *
+	 * Their SDKs load asynchronously and are frequently not ready during the first
+	 * paypalInit() run, which previously caused these buttons to be missing on first
+	 * load and only appear after a page change. We wait (bounded) for each SDK and
+	 * register the eligible methods so they are included when the selector is built.
+	 *
+	 * @param {Object} opts Config flags.
+	 *
+	 * @return {Promise<void>}
+	 */
+	async function discoverDeferredPaymentMethods( opts ) {
+		const { buttonsAreEnabled, isRecurring } = opts;
+
+		if ( ! buttonsAreEnabled || isRecurring ) {
+			return;
 		}
 
-		// --- Apple Pay ---
-		if ( buttonsAreEnabled && ! isRecurring ) {
-			const applePayEligibilityResult = await checkApplePayEligibility();
-			if ( applePayEligibilityResult === '' ) {
-				registerMethod( 'apple_pay', {
-					eligible: true,
-					render: renderApplePayButton
-				} );
-			}
+		// Skip (and avoid the SDK wait) when Google Pay / Apple Pay were not enqueued
+		// server-side, e.g. via the frm_include_google_pay_apple_pay filter or non-SSL.
+		if ( ! frmPayPalVars.includeGooglePayApplePay ) {
+			return;
 		}
+
+		// Resolve both eligibility checks in parallel so the combined wait is bounded by
+		// the slower of the two, then register them in a fixed order (Google Pay, then
+		// Apple Pay). Registration happens before the selector is built, so they render
+		// together with the other methods.
+		const [ googlePayEligible, applePayEligible ] = await Promise.all( [
+			resolveGooglePayEligibility(),
+			resolveApplePayEligibility()
+		] );
+
+		if ( googlePayEligible ) {
+			registerMethod( 'google_pay', {
+				eligible: true,
+				render: renderGooglePayButton
+			} );
+		}
+
+		if ( applePayEligible ) {
+			registerMethod( 'apple_pay', {
+				eligible: true,
+				render: renderApplePayButton
+			} );
+		}
+	}
+
+	/**
+	 * Wait for the Google Pay SDK and resolve whether Google Pay is eligible.
+	 *
+	 * @return {Promise<boolean>} Whether Google Pay is eligible.
+	 */
+	async function resolveGooglePayEligibility() {
+		const sdkReady = await waitFor(
+			() => 'function' === typeof paypal.Googlepay && 'undefined' !== typeof google && undefined !== google.payments
+		);
+		if ( ! sdkReady ) {
+			return false;
+		}
+
+		return checkGooglePayEligibility();
+	}
+
+	/**
+	 * Wait for the Apple Pay SDK and resolve whether Apple Pay is eligible.
+	 *
+	 * @return {Promise<boolean>} Whether Apple Pay is eligible.
+	 */
+	async function resolveApplePayEligibility() {
+		// Wait for Apple Pay session to be available (requires Apple Pay SDK to load).
+		const sessionReady = await waitFor( () => undefined !== window.ApplePaySession );
+		if ( ! sessionReady ) {
+			return false;
+		}
+
+		// Wait for canMakePayments to return true.
+		const canMakePaymentsReady = await waitFor( () => ApplePaySession.canMakePayments() );
+		if ( ! canMakePaymentsReady ) {
+			return false;
+		}
+
+		// First ensure the PayPal SDK itself is loaded.
+		const paypalReady = await waitFor( () => 'object' === typeof window.paypal );
+		if ( ! paypalReady ) {
+			return false;
+		}
+
+		// Wait for the Apple Pay function to be available.
+		const sdkReady = await waitFor( () => 'function' === typeof paypal.Applepay );
+		if ( ! sdkReady ) {
+			return false;
+		}
+
+		// Wait for the config call to actually succeed, not just the function to exist.
+		// This handles the race condition where the function exists but SDK isn't fully initialized.
+		const configReady = await waitFor( async () => {
+			try {
+				const instance = paypal.Applepay();
+				const config = await instance.config();
+				return config?.isEligible;
+			} catch ( e ) {
+				return false;
+			}
+		} );
+
+		if ( ! configReady ) {
+			return false;
+		}
+
+		// Config succeeded, cache it and return true.
+		applePayInstance = paypal.Applepay();
+		applePayConfig = await applePayInstance.config();
+		return true;
+	}
+
+	/**
+	 * Poll for a condition until it is true or a timeout elapses.
+	 *
+	 * @param {Function} predicate  Returns true (or a Promise resolving to true) when the awaited dependency is ready.
+	 * @param {number}   [timeout]  Maximum time to wait, in milliseconds.
+	 * @param {number}   [interval] Poll interval, in milliseconds.
+	 *
+	 * @return {Promise<boolean>} Whether the predicate became true before the timeout.
+	 */
+	async function waitFor( predicate, timeout = 3000, interval = 50 ) {
+		const checkPredicate = async () => {
+			const result = predicate();
+			if ( result instanceof Promise ) {
+				return await result;
+			}
+			return result;
+		};
+
+		if ( await checkPredicate() ) {
+			return true;
+		}
+
+		const start = Date.now();
+		return new Promise( resolve => {
+			const timer = setInterval( async () => {
+				if ( await checkPredicate() ) {
+					clearInterval( timer );
+					resolve( true );
+				} else if ( Date.now() - start >= timeout ) {
+					clearInterval( timer );
+					resolve( false );
+				}
+			}, interval );
+		} );
 	}
 
 	/**
@@ -319,87 +465,99 @@
 		group.setAttribute( 'aria-label', 'Select payment method' );
 
 		for ( const [ key, method ] of paymentMethods ) {
-			const label = document.createElement( 'label' );
-			label.classList.add( 'frm-payment-method-option' );
-			label.setAttribute( 'for', `frm-payment-method-radio-${ key }` );
-
-			const radio = document.createElement( 'input' );
-			radio.type = 'radio';
-			radio.name = 'frm_payment_method';
-			radio.id = `frm-payment-method-radio-${ key }`;
-			radio.value = key;
-
-			radio.addEventListener( 'change', () => selectPaymentMethod( key ) );
-
-			// Text column: label + description.
-			const textWrap = document.createElement( 'div' );
-			textWrap.classList.add( 'frm-payment-method-text' );
-
-			const labelText = document.createElement( 'span' );
-			labelText.classList.add( 'frm-payment-method-label-text' );
-			labelText.textContent = method.label;
-			textWrap.append( labelText );
-
-			// Mark column: will be populated by renderMarks() after the group is in the DOM.
-			const markWrap = document.createElement( 'div' );
-			markWrap.classList.add( 'frm-payment-method-mark' );
-			markWrap.id = `frm-payment-mark-${ key }`;
-
-			const baseUrl = frmPayPalVars.imagesUrl || '';
-
-			if ( key === 'card' ) {
-				const cardBrands = [
-					{ file: 'visa.svg', alt: 'Visa' },
-					{ file: 'mastercard.svg', alt: 'Mastercard' },
-					{ file: 'amex.svg', alt: 'American Express' },
-					{ file: 'discover.svg', alt: 'Discover' },
-				];
-				cardBrands.forEach( function( brand ) {
-					const img = document.createElement( 'img' );
-					img.src = baseUrl + brand.file;
-					img.alt = brand.alt;
-					img.height = 24;
-					markWrap.append( img );
-				} );
-			} else if ( key === 'google_pay' ) {
-				markWrap.classList.add( 'frm-payment-method-google-pay-icon' );
-				const img = document.createElement( 'img' );
-				img.src = `${ baseUrl }gpay.svg`;
-				img.alt = 'Google Pay';
-				img.height = 24;
-				markWrap.append( img );
-			} else if ( key === 'apple_pay' ) {
-				markWrap.classList.add( 'frm-payment-method-apple-pay-icon' );
-				const img = document.createElement( 'img' );
-				img.src = `${ baseUrl }apple-pay.svg`;
-				img.alt = 'Apple Pay';
-				img.height = 24;
-				img.style.width = 'auto';
-				markWrap.append( img );
-			}
-
-			label.append( radio );
-			label.append( textWrap );
-			label.append( markWrap );
-
-			if ( key === 'paylater' ) {
-				// Wrap the label and a message container in a div.
-				const wrapper = document.createElement( 'div' );
-				wrapper.classList.add( 'frm-payment-method-paylater-wrap' );
-				wrapper.append( label );
-
-				const msgContainer = document.createElement( 'div' );
-				msgContainer.id = 'frm-paylater-message';
-				msgContainer.classList.add( 'frm-payment-method-paylater-msg' );
-				wrapper.append( msgContainer );
-
-				group.append( wrapper );
-			} else {
-				group.append( label );
-			}
+			group.append( buildMethodOption( key, method ) );
 		}
 
 		return group;
+	}
+
+	/**
+	 * Build a single payment method radio option row.
+	 *
+	 * @param {string} key    The payment method key.
+	 * @param {Object} method The registered method object.
+	 *
+	 * @return {HTMLElement} The option element (a label, or a wrapper for Pay Later).
+	 */
+	function buildMethodOption( key, method ) {
+		const label = document.createElement( 'label' );
+		label.classList.add( 'frm-payment-method-option' );
+		label.setAttribute( 'for', `frm-payment-method-radio-${ key }` );
+
+		const radio = document.createElement( 'input' );
+		radio.type = 'radio';
+		radio.name = 'frm_payment_method';
+		radio.id = `frm-payment-method-radio-${ key }`;
+		radio.value = key;
+
+		radio.addEventListener( 'change', () => selectPaymentMethod( key ) );
+
+		// Text column: label + description.
+		const textWrap = document.createElement( 'div' );
+		textWrap.classList.add( 'frm-payment-method-text' );
+
+		const labelText = document.createElement( 'span' );
+		labelText.classList.add( 'frm-payment-method-label-text' );
+		labelText.textContent = method.label;
+		textWrap.append( labelText );
+
+		// Mark column: will be populated by renderMarks() after the group is in the DOM.
+		const markWrap = document.createElement( 'div' );
+		markWrap.classList.add( 'frm-payment-method-mark' );
+		markWrap.id = `frm-payment-mark-${ key }`;
+
+		const baseUrl = frmPayPalVars.imagesUrl || '';
+
+		if ( key === 'card' ) {
+			const cardBrands = [
+				{ file: 'visa.svg', alt: 'Visa' },
+				{ file: 'mastercard.svg', alt: 'Mastercard' },
+				{ file: 'amex.svg', alt: 'American Express' },
+				{ file: 'discover.svg', alt: 'Discover' },
+			];
+			cardBrands.forEach( function( brand ) {
+				const img = document.createElement( 'img' );
+				img.src = baseUrl + brand.file;
+				img.alt = brand.alt;
+				img.height = 24;
+				markWrap.append( img );
+			} );
+		} else if ( key === 'google_pay' ) {
+			markWrap.classList.add( 'frm-payment-method-google-pay-icon' );
+			const img = document.createElement( 'img' );
+			img.src = `${ baseUrl }gpay.svg`;
+			img.alt = 'Google Pay';
+			img.height = 24;
+			markWrap.append( img );
+		} else if ( key === 'apple_pay' ) {
+			markWrap.classList.add( 'frm-payment-method-apple-pay-icon' );
+			const img = document.createElement( 'img' );
+			img.src = `${ baseUrl }apple-pay.svg`;
+			img.alt = 'Apple Pay';
+			img.height = 24;
+			img.style.width = 'auto';
+			markWrap.append( img );
+		}
+
+		label.append( radio );
+		label.append( textWrap );
+		label.append( markWrap );
+
+		if ( key === 'paylater' ) {
+			// Wrap the label and a message container in a div.
+			const wrapper = document.createElement( 'div' );
+			wrapper.classList.add( 'frm-payment-method-paylater-wrap' );
+			wrapper.append( label );
+
+			const msgContainer = document.createElement( 'div' );
+			msgContainer.id = 'frm-paylater-message';
+			msgContainer.classList.add( 'frm-payment-method-paylater-msg' );
+			wrapper.append( msgContainer );
+
+			return wrapper;
+		}
+
+		return label;
 	}
 
 	/**
@@ -636,21 +794,18 @@
 
 		const observerOptions = { attributes: true, attributeFilter: [ 'style' ] };
 
-		const observerCallback = ( mutationsList, observer ) => {
-			observer.disconnect();
-
+		const observerCallback = mutationsList => {
 			for ( const mutation of mutationsList ) {
 				if ( mutation.type !== 'attributes' || mutation.attributeName !== 'style' ) {
 					continue;
 				}
 
 				const currentHeight = mutation.target.offsetHeight;
-				if ( currentHeight > 0 ) {
+				// Only adjust if height is reasonable and not already adjusted.
+				if ( currentHeight > 40 && currentHeight < 100 ) {
 					mutation.target.style.height = `${ currentHeight + 1 }px`;
 				}
 			}
-
-			wrappers.forEach( w => observer.observe( w, observerOptions ) );
 		};
 
 		const observer = new MutationObserver( observerCallback );
@@ -930,39 +1085,6 @@
 	}
 
 	/**
-	 * Check if Apple Pay is eligible (without rendering).
-	 *
-	 * @return {Promise<string>} An empty string if Apple Pay is supported and ready to accept payments in the current environment, or a string with the reason for ineligibility.
-	 */
-	async function checkApplePayEligibility() {
-		if ( 'function' !== typeof paypal.Applepay ) {
-			return 'PayPal Apple Pay SDK not loaded';
-		}
-
-		if ( ! window.ApplePaySession ) {
-			return 'Not on Apple device';
-		}
-
-		if ( ! ApplePaySession.canMakePayments() ) {
-			return 'Apple Pay not configured on device';
-		}
-
-		// Use paypal.Applepay().config() as the definitive eligibility check (per PayPal multiparty docs).
-		try {
-			applePayInstance = paypal.Applepay();
-			applePayConfig = await applePayInstance.config();
-
-			if ( ! applePayConfig || ! applePayConfig.isEligible ) {
-				return 'PayPal reports Apple Pay is not eligible for this merchant/domain';
-			}
-		} catch ( err ) {
-			return `Apple Pay config check failed: ${ err.message }`;
-		}
-
-		return '';
-	}
-
-	/**
 	 * Render the Apple Pay button into its method container.
 	 *
 	 * The <apple-pay-button> web component uses CSS custom properties for sizing,
@@ -976,6 +1098,11 @@
 
 		const container = method.containerEl;
 		container.innerHTML = '';
+
+		// Check if Apple Pay is available on the device.
+		if ( 'undefined' === typeof ApplePaySession ) {
+			return;
+		}
 
 		const applePayStyle = getApplePayButtonStyle();
 
