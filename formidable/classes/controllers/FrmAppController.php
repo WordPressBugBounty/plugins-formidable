@@ -400,7 +400,7 @@ class FrmAppController {
 				$upgrade_link = FrmAppHelper::admin_upgrade_link( $utm );
 			}
 
-			$settings[] = '<a href="' . esc_url( $upgrade_link ) . '" target="_blank" rel="noopener"><b style="color:#1da867;font-weight:700;">' . esc_html( $label ) . '</b></a>';
+			$settings[] = '<a href="' . esc_url( $upgrade_link ) . '" target="_blank" rel="noopener"><b style="color:#065f46;font-weight:700;">' . esc_html( $label ) . '</b></a>';
 		}//end if
 
 		$settings[] = '<a href="' . esc_url( admin_url( 'admin.php?page=formidable' ) ) . '">' . esc_html__( 'Build a Form', 'formidable' ) . '</a>';
@@ -727,7 +727,8 @@ class FrmAppController {
 		$settings_js_vars = array(
 			'currencies' => FrmCurrencyHelper::get_currencies(),
 		);
-		wp_register_script( 'formidable_settings', $plugin_url . '/js/admin/settings.js', array(), $version, true );
+		wp_register_script( 'formidable_settings', $plugin_url . '/js/admin/settings.js', array( 'wp-i18n' ), $version, true );
+		wp_set_script_translations( 'formidable_settings', 'formidable' );
 		wp_localize_script( 'formidable_settings', 'frmSettings', $settings_js_vars );
 		wp_register_script( 'formidable-web-components', $plugin_url . '/js/formidable-web-components.js', $frm_components_dependencies, $version, true );
 
